@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.getContext('2d').drawImage(video, 0, 0);
 
         canvas.toBlob(blob => {
-            sendToAPI(new File([blob], 'webcam_capture.jpg', { type: 'image/jpeg' }));
+            sendToAPI(new File([blob], 'webcam_capture.jpg', { type: 'image/jpeg' }), 'upload');
         }, 'image/jpeg', 0.85);
     };
 
@@ -170,7 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 formData.append('file', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
 
                 liveDetectionAbort = new AbortController();
-                const res = await fetch('/detect', {
+                const res = await fetch('/detect?mode=live', {
                     method: 'POST',
                     body: formData,
                     signal: liveDetectionAbort.signal
@@ -214,7 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── API Call (single image) ─────────────────────────
-    async function sendToAPI(file) {
+    async function sendToAPI(file, mode = 'upload') {
         document.getElementById('mode-upload').classList.add('hidden');
         document.getElementById('mode-webcam').classList.add('hidden');
         document.querySelectorAll('.mode-tabs')[0].classList.add('hidden');
@@ -225,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('file', file);
 
         try {
-            const res = await fetch('/detect', { method: 'POST', body: formData });
+            const res = await fetch('/detect?mode=' + mode, { method: 'POST', body: formData });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Detection failed.');
             showResults(data);
