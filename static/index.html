@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLOv8 Object Detection</title>
+    <meta name="description" content="A modern web interface for real-time object detection using YOLOv8.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-effect"></div>
+    
+    <div class="container">
+        <header>
+            <h1>Vision<span class="highlight">AI</span></h1>
+            <p>YOLOv8 Object Detection Engine</p>
+        </header>
+
+        <main>
+            <div class="upload-section" id="upload-zone">
+                <input type="file" id="file-input" accept="image/*" hidden>
+                <div class="upload-content">
+                    <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <h2>Drag & Drop your image</h2>
+                    <p>or click to browse</p>
+                </div>
+            </div>
+
+            <div class="loading" id="loading-spinner">
+                <div class="spinner"></div>
+                <p>Analyzing image...</p>
+            </div>
+
+            <div class="results-section" id="results-section">
+                <div class="image-container">
+                    <img id="result-image" src="" alt="Detected Objects">
+                </div>
+                <div class="stats-panel">
+                    <h3>Detection Summary</h3>
+                    <div class="stat-box">
+                        <span class="stat-value" id="total-objects">0</span>
+                        <span class="stat-label">Total Objects</span>
+                    </div>
+                    <h4>Breakdown</h4>
+                    <ul id="class-breakdown" class="class-list">
+                        <!-- Breakdown items will be injected here -->
+                    </ul>
+                    <button id="reset-btn" class="btn">Analyze Another Image</button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by YOLOv8 & OpenCV</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
