@@ -46,7 +46,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleFiles(files) {
         if (!files.length) return;
         const file = files[0];
-        if (!file.type.startsWith('image/')) {
+        // Check MIME type OR file extension (Android often doesn't set MIME type)
+        const validExts = ['.jpg', '.jpeg', '.png', '.bmp', '.webp', '.heic', '.heif'];
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        const isImage = file.type.startsWith('image/') || validExts.includes(ext);
+        if (!isImage) {
             alert('Please upload an image file (JPG, PNG, BMP).');
             return;
         }

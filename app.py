@@ -50,7 +50,9 @@ async def detect_objects(file: UploadFile = File(...)):
     Accepts an uploaded image, runs YOLOv8 detection, and returns the
     annotated image (base64) along with detection statistics.
     """
-    if not file.content_type.startswith("image/"):
+    # Be lenient with content type — mobile browsers often send wrong MIME types
+    # We'll validate the actual image data instead when we try to decode it
+    if file.content_type and not file.content_type.startswith("image/") and file.content_type != "application/octet-stream":
         raise HTTPException(status_code=400, detail="File provided is not an image.")
 
     try:
