@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import base64
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
@@ -10,13 +10,11 @@ from detector import ObjectDetector
 
 app = FastAPI(title="YOLOv8 Object Detector API")
 
-# Initialize TWO detectors:
-#   - nano  → fast, for live webcam (speed > accuracy)
-#   - small → accurate, for image uploads (accuracy > speed)
-print("Initializing detectors...")
-detector_nano = ObjectDetector(model_size="n", confidence=0.4)
-detector_small = ObjectDetector(model_size="s", confidence=0.4)
-print("Both detectors ready.")
+# Initialize a single detector using the small model for better accuracy
+# (free tier only has 512MB RAM — can't load two models)
+print("Initializing YOLOv8s detector...")
+detector = ObjectDetector(model_size="s", confidence=0.4)
+print("Detector ready.")
 
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -32,16 +30,10 @@ async def serve_frontend():
 
 
 @app.post("/detect")
-async def detect_objects(
-    file: UploadFile = File(...),
-    mode: str = Query(default="upload", description="'upload' for accurate (small model), 'live' for fast (nano model)")
-):
+async def detect_objects(file: UploadFile = File(...)):
     """
     Accepts an uploaded image, runs YOLOv8 detection, and returns the
     annotated image (base64) along with detection statistics.
-
-    mode=upload  → uses YOLOv8s (more accurate)
-    mode=live    → uses YOLOv8n (faster for real-time)
     """
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File provided is not an image.")
@@ -53,9 +45,6 @@ async def detect_objects(
 
         if frame is None:
             raise HTTPException(status_code=400, detail="Could not decode image.")
-
-        # Pick the right detector based on mode
-        detector = detector_nano if mode == "live" else detector_small
 
         detections = detector.detect_frame(frame)
         annotated_frame = detector.draw_detections(frame, detections)
