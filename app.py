@@ -10,14 +10,28 @@ from detector import ObjectDetector
 
 app = FastAPI(title="YOLOv8 Object Detector API")
 
-# Initialize a single detector using the small model for better accuracy
-# (free tier only has 512MB RAM — can't load two models)
-print("Initializing YOLOv8s detector...")
-detector = ObjectDetector(model_size="s", confidence=0.4)
+# Use nano model — only viable option for Render free tier (0.1 CPU, 512MB RAM)
+print("Initializing YOLOv8n detector...")
+detector = ObjectDetector(model_size="n", confidence=0.4)
 print("Detector ready.")
 
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def resize_image(frame, max_dim=1280):
+    """
+    Resize large images (e.g., phone photos) to a reasonable size.
+    YOLOv8 internally resizes to 640x640 anyway, so sending a 12MP
+    image just wastes time on encoding/decoding.
+    """
+    h, w = frame.shape[:2]
+    if max(h, w) <= max_dim:
+        return frame
+    scale = max_dim / max(h, w)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 @app.get("/")
@@ -46,10 +60,14 @@ async def detect_objects(file: UploadFile = File(...)):
         if frame is None:
             raise HTTPException(status_code=400, detail="Could not decode image.")
 
+        # Resize large images (phone photos can be 12MP+) for faster processing
+        frame = resize_image(frame)
+
         detections = detector.detect_frame(frame)
         annotated_frame = detector.draw_detections(frame, detections)
 
-        _, buffer = cv2.imencode('.jpg', annotated_frame)
+        # Encode with reduced quality for faster transfer
+        _, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         encoded_image = base64.b64encode(buffer).decode('utf-8')
 
         class_counts = {}
