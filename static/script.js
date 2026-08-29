@@ -54,7 +54,40 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Please upload an image file (JPG, PNG, BMP).');
             return;
         }
-        sendToAPI(file);
+        // Resize in browser before uploading (large photos crash the server)
+        resizeAndUpload(file);
+    }
+
+    function resizeAndUpload(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                const MAX_DIM = 640;
+                let w = img.width;
+                let h = img.height;
+
+                // Only resize if larger than MAX_DIM
+                if (Math.max(w, h) > MAX_DIM) {
+                    const scale = MAX_DIM / Math.max(w, h);
+                    w = Math.round(w * scale);
+                    h = Math.round(h * scale);
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+
+                canvas.toBlob(blob => {
+                    const resizedFile = new File([blob], file.name, { type: 'image/jpeg' });
+                    sendToAPI(resizedFile);
+                }, 'image/jpeg', 0.85);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
     }
 
     // ── Webcam ──────────────────────────────────────────
