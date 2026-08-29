@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.getContext('2d').drawImage(video, 0, 0);
 
         canvas.toBlob(blob => {
-            sendToAPI(new File([blob], 'webcam_capture.jpg', { type: 'image/jpeg' }), 'upload');
+            sendToAPI(new File([blob], 'webcam_capture.jpg', { type: 'image/jpeg' }));
         }, 'image/jpeg', 0.85);
     };
 
@@ -110,11 +110,9 @@ document.addEventListener('DOMContentLoaded', () => {
         liveBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Stop Detection`;
         liveBtn.classList.add('live-active');
 
-        // Show the live results panel
         document.getElementById('live-results').classList.remove('hidden');
         document.getElementById('capture-btn').style.display = 'none';
 
-        // Hide the raw video feed and show the annotated canvas
         document.getElementById('webcam-video').style.opacity = '0';
         document.getElementById('live-canvas').classList.remove('hidden');
 
@@ -139,7 +137,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const captureBtn = document.getElementById('capture-btn');
         if (captureBtn && webcamStream) captureBtn.style.display = 'flex';
 
-        // Show raw video again, hide annotated canvas
         const video = document.getElementById('webcam-video');
         if (video) video.style.opacity = '1';
         const liveCanvas = document.getElementById('live-canvas');
@@ -154,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         while (liveDetectionRunning && webcamStream) {
             try {
-                // Capture current frame
                 captureCanvas.width = video.videoWidth;
                 captureCanvas.height = video.videoHeight;
                 captureCanvas.getContext('2d').drawImage(video, 0, 0);
@@ -165,12 +161,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!liveDetectionRunning) break;
 
-                // Send to API
                 const formData = new FormData();
                 formData.append('file', new File([blob], 'frame.jpg', { type: 'image/jpeg' }));
 
                 liveDetectionAbort = new AbortController();
-                const res = await fetch('/detect?mode=live', {
+                const res = await fetch('/detect', {
                     method: 'POST',
                     body: formData,
                     signal: liveDetectionAbort.signal
@@ -181,7 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await res.json();
 
                 if (data.success) {
-                    // Draw annotated image onto the live canvas
                     liveImg.src = 'data:image/jpeg;base64,' + data.image;
                     await new Promise(resolve => { liveImg.onload = resolve; });
 
@@ -189,12 +183,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     liveCanvas.height = liveImg.height;
                     liveCanvas.getContext('2d').drawImage(liveImg, 0, 0);
 
-                    // Update live stats HUD
                     updateLiveStats(data);
                 }
             } catch (err) {
                 if (err.name === 'AbortError') break;
-                // On error, wait a bit and retry
                 await new Promise(r => setTimeout(r, 1000));
             }
         }
@@ -214,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── API Call (single image) ─────────────────────────
-    async function sendToAPI(file, mode = 'upload') {
+    async function sendToAPI(file) {
         document.getElementById('mode-upload').classList.add('hidden');
         document.getElementById('mode-webcam').classList.add('hidden');
         document.querySelectorAll('.mode-tabs')[0].classList.add('hidden');
@@ -225,9 +217,19 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('file', file);
 
         try {
-            const res = await fetch('/detect?mode=' + mode, { method: 'POST', body: formData });
+            const res = await fetch('/detect', { method: 'POST', body: formData });
+
+            if (!res.ok) {
+                // Try to parse error message from server
+                let errMsg = 'Detection failed (server returned ' + res.status + ')';
+                try {
+                    const errData = await res.json();
+                    errMsg = errData.detail || errMsg;
+                } catch (e) { /* ignore parse errors */ }
+                throw new Error(errMsg);
+            }
+
             const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Detection failed.');
             showResults(data);
         } catch (err) {
             alert('Error: ' + err.message);
