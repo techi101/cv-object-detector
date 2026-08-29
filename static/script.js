@@ -1,131 +1,164 @@
 document.addEventListener('DOMContentLoaded', () => {
     const uploadZone = document.getElementById('upload-zone');
     const fileInput = document.getElementById('file-input');
-    const loadingSpinner = document.getElementById('loading-spinner');
-    const resultsSection = document.getElementById('results-section');
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
     const resultImage = document.getElementById('result-image');
-    const totalObjects = document.getElementById('total-objects');
-    const classBreakdown = document.getElementById('class-breakdown');
-    const resetBtn = document.getElementById('reset-btn');
+    const totalCount = document.getElementById('total-count');
+    const classList = document.getElementById('class-list');
 
-    // Drag and drop event listeners
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, preventDefaults, false);
+    // ── Mode Switching ──────────────────────────────────
+    window.switchMode = function(mode) {
+        document.getElementById('tab-upload').classList.toggle('active', mode === 'upload');
+        document.getElementById('tab-webcam').classList.toggle('active', mode === 'webcam');
+        document.getElementById('mode-upload').classList.toggle('hidden', mode !== 'upload');
+        document.getElementById('mode-webcam').classList.toggle('hidden', mode !== 'webcam');
+        results.classList.add('hidden');
+        loading.classList.add('hidden');
+
+        // Stop webcam if switching away
+        if (mode === 'upload') {
+            stopWebcam();
+        }
+    };
+
+    // ── Drag & Drop ─────────────────────────────────────
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+        uploadZone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); }, false);
     });
 
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, () => {
-            uploadZone.classList.add('dragover');
-        }, false);
+    ['dragenter', 'dragover'].forEach(evt => {
+        uploadZone.addEventListener(evt, () => uploadZone.classList.add('dragover'));
     });
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        uploadZone.addEventListener(eventName, () => {
-            uploadZone.classList.remove('dragover');
-        }, false);
+    ['dragleave', 'drop'].forEach(evt => {
+        uploadZone.addEventListener(evt, () => uploadZone.classList.remove('dragover'));
     });
 
-    // Handle dropped files
-    uploadZone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        handleFiles(files);
+    uploadZone.addEventListener('drop', e => {
+        handleFiles(e.dataTransfer.files);
     });
 
-    // Handle click to upload
-    uploadZone.addEventListener('click', () => {
-        fileInput.click();
-    });
+    uploadZone.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', function() {
         handleFiles(this.files);
     });
 
     function handleFiles(files) {
-        if (files.length === 0) return;
+        if (!files.length) return;
         const file = files[0];
-        
         if (!file.type.startsWith('image/')) {
-            alert('Please upload an image file.');
+            alert('Please upload an image file (JPG, PNG, BMP).');
             return;
         }
-
-        uploadImage(file);
+        sendToAPI(file);
     }
 
-    async function uploadImage(file) {
-        // UI transitions
-        uploadZone.style.display = 'none';
-        resultsSection.style.display = 'none';
-        loadingSpinner.style.display = 'flex';
+    // ── Webcam ──────────────────────────────────────────
+    let webcamStream = null;
+
+    window.startWebcam = async function() {
+        try {
+            const video = document.getElementById('webcam-video');
+            webcamStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            video.srcObject = webcamStream;
+            document.getElementById('webcam-overlay').style.display = 'none';
+            document.getElementById('capture-btn').style.display = 'flex';
+        } catch (err) {
+            alert('Could not access camera: ' + err.message);
+        }
+    };
+
+    function stopWebcam() {
+        if (webcamStream) {
+            webcamStream.getTracks().forEach(t => t.stop());
+            webcamStream = null;
+        }
+        const overlay = document.getElementById('webcam-overlay');
+        const captureBtn = document.getElementById('capture-btn');
+        if (overlay) overlay.style.display = 'flex';
+        if (captureBtn) captureBtn.style.display = 'none';
+    }
+
+    window.captureFrame = function() {
+        const video = document.getElementById('webcam-video');
+        const canvas = document.getElementById('webcam-canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+
+        canvas.toBlob(blob => {
+            const file = new File([blob], 'webcam_capture.jpg', { type: 'image/jpeg' });
+            sendToAPI(file);
+        }, 'image/jpeg', 0.92);
+    };
+
+    // ── API Call ─────────────────────────────────────────
+    async function sendToAPI(file) {
+        // Show loading
+        document.getElementById('mode-upload').classList.add('hidden');
+        document.getElementById('mode-webcam').classList.add('hidden');
+        document.querySelectorAll('.mode-tabs')[0].classList.add('hidden');
+        results.classList.add('hidden');
+        loading.classList.remove('hidden');
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            const response = await fetch('/detect', {
-                method: 'POST',
-                body: formData
-            });
+            const res = await fetch('/detect', { method: 'POST', body: formData });
+            const data = await res.json();
 
-            const data = await response.json();
+            if (!res.ok) throw new Error(data.detail || 'Detection failed.');
 
-            if (!response.ok) {
-                throw new Error(data.detail || 'An error occurred during detection.');
-            }
-
-            displayResults(data);
-
-        } catch (error) {
-            alert(`Error: ${error.message}`);
-            // Reset UI
-            loadingSpinner.style.display = 'none';
-            uploadZone.style.display = 'block';
+            showResults(data);
+        } catch (err) {
+            alert('Error: ' + err.message);
+            resetUI();
         }
     }
 
-    function displayResults(data) {
-        loadingSpinner.style.display = 'none';
-        
-        // Update image
-        resultImage.src = `data:image/jpeg;base64,${data.image}`;
-        
-        // Update stats
-        totalObjects.textContent = data.count;
-        
-        // Update class breakdown
-        classBreakdown.innerHTML = '';
-        if (Object.keys(data.class_counts).length === 0) {
-            classBreakdown.innerHTML = '<li class="class-item"><span class="class-name">No objects detected</span></li>';
+    // ── Display Results ─────────────────────────────────
+    function showResults(data) {
+        loading.classList.add('hidden');
+
+        resultImage.src = 'data:image/jpeg;base64,' + data.image;
+        totalCount.textContent = data.count;
+
+        classList.innerHTML = '';
+        const sorted = Object.entries(data.class_counts).sort((a, b) => b[1] - a[1]);
+
+        if (sorted.length === 0) {
+            classList.innerHTML = '<li class="class-item"><span class="class-name">No objects detected</span></li>';
         } else {
-            // Sort by count descending
-            const sortedClasses = Object.entries(data.class_counts)
-                .sort((a, b) => b[1] - a[1]);
-                
-            sortedClasses.forEach(([className, count]) => {
+            sorted.forEach(([name, count]) => {
                 const li = document.createElement('li');
                 li.className = 'class-item';
-                li.innerHTML = `
-                    <span class="class-name">${className}</span>
-                    <span class="class-count">${count}</span>
-                `;
-                classBreakdown.appendChild(li);
+                li.innerHTML = `<span class="class-name">${name}</span><span class="class-count">${count}</span>`;
+                classList.appendChild(li);
             });
         }
-        
-        // Show results with display grid
-        resultsSection.style.display = 'grid';
+
+        results.classList.remove('hidden');
     }
 
-    // Reset button
-    resetBtn.addEventListener('click', () => {
-        resultsSection.style.display = 'none';
-        uploadZone.style.display = 'block';
-        fileInput.value = ''; // Clear input
-    });
+    // ── Reset ───────────────────────────────────────────
+    window.resetUI = function() {
+        results.classList.add('hidden');
+        loading.classList.add('hidden');
+        document.querySelectorAll('.mode-tabs')[0].classList.remove('hidden');
+
+        const activeTab = document.querySelector('.tab.active');
+        if (activeTab && activeTab.id === 'tab-webcam') {
+            document.getElementById('mode-webcam').classList.remove('hidden');
+        } else {
+            document.getElementById('mode-upload').classList.remove('hidden');
+        }
+
+        fileInput.value = '';
+    };
 });

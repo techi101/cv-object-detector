@@ -3,63 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YOLOv8 Object Detection</title>
-    <meta name="description" content="A modern web interface for real-time object detection using YOLOv8.">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <title>VisionAI — YOLOv8 Object Detection</title>
+    <meta name="description" content="Real-time object detection powered by YOLOv8. Upload images or use your webcam to detect 80+ object classes instantly.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="background-effect"></div>
-    
+    <!-- Animated background blobs -->
+    <div class="bg-blob blob-1"></div>
+    <div class="bg-blob blob-2"></div>
+    <div class="bg-blob blob-3"></div>
+
     <div class="container">
+        <!-- Header -->
         <header>
-            <h1>Vision<span class="highlight">AI</span></h1>
-            <p>YOLOv8 Object Detection Engine</p>
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                    </svg>
+                </div>
+                <h1>Vision<span class="gradient-text">AI</span></h1>
+            </div>
+            <p class="subtitle">YOLOv8 Real-Time Object Detection Engine &middot; 80+ Classes</p>
         </header>
 
-        <main>
-            <div class="upload-section" id="upload-zone">
+        <!-- Mode Tabs -->
+        <div class="mode-tabs">
+            <button class="tab active" id="tab-upload" onclick="switchMode('upload')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Upload Image
+            </button>
+            <button class="tab" id="tab-webcam" onclick="switchMode('webcam')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                Live Webcam
+            </button>
+        </div>
+
+        <!-- Upload Mode -->
+        <div class="mode-panel" id="mode-upload">
+            <div class="upload-zone" id="upload-zone">
                 <input type="file" id="file-input" accept="image/*" hidden>
-                <div class="upload-content">
-                    <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="17 8 12 3 7 8"></polyline>
-                        <line x1="12" y1="3" x2="12" y2="15"></line>
-                    </svg>
-                    <h2>Drag & Drop your image</h2>
-                    <p>or click to browse</p>
-                </div>
-            </div>
-
-            <div class="loading" id="loading-spinner">
-                <div class="spinner"></div>
-                <p>Analyzing image...</p>
-            </div>
-
-            <div class="results-section" id="results-section">
-                <div class="image-container">
-                    <img id="result-image" src="" alt="Detected Objects">
-                </div>
-                <div class="stats-panel">
-                    <h3>Detection Summary</h3>
-                    <div class="stat-box">
-                        <span class="stat-value" id="total-objects">0</span>
-                        <span class="stat-label">Total Objects</span>
+                <div class="upload-inner">
+                    <div class="upload-icon-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
                     </div>
-                    <h4>Breakdown</h4>
-                    <ul id="class-breakdown" class="class-list">
-                        <!-- Breakdown items will be injected here -->
-                    </ul>
-                    <button id="reset-btn" class="btn">Analyze Another Image</button>
+                    <h2>Drag & drop your image here</h2>
+                    <p>or click to browse &middot; JPG, PNG, BMP supported</p>
                 </div>
             </div>
-        </main>
+        </div>
 
+        <!-- Webcam Mode -->
+        <div class="mode-panel hidden" id="mode-webcam">
+            <div class="webcam-container">
+                <video id="webcam-video" autoplay playsinline></video>
+                <canvas id="webcam-canvas" style="display:none;"></canvas>
+                <div class="webcam-overlay" id="webcam-overlay">
+                    <p>Camera access required</p>
+                    <button class="btn btn-primary" id="start-cam-btn" onclick="startWebcam()">Enable Camera</button>
+                </div>
+                <button class="btn btn-capture" id="capture-btn" style="display:none;" onclick="captureFrame()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+                    Capture & Detect
+                </button>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading hidden" id="loading">
+            <div class="spinner-ring">
+                <div></div><div></div><div></div><div></div>
+            </div>
+            <p>Running YOLOv8 inference...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="results hidden" id="results">
+            <div class="results-grid">
+                <div class="result-image-card">
+                    <div class="card-header">
+                        <h3>Detection Result</h3>
+                    </div>
+                    <div class="image-wrap">
+                        <img id="result-image" src="" alt="Detection result">
+                    </div>
+                </div>
+                <div class="result-stats-card">
+                    <div class="card-header">
+                        <h3>Analysis</h3>
+                    </div>
+                    <div class="stat-highlight">
+                        <span class="stat-number" id="total-count">0</span>
+                        <span class="stat-label">Objects Detected</span>
+                    </div>
+                    <div class="divider"></div>
+                    <h4>Class Breakdown</h4>
+                    <ul class="class-list" id="class-list"></ul>
+                    <button class="btn btn-primary btn-full" id="reset-btn" onclick="resetUI()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="1 4 1 10 7 10"/>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                        </svg>
+                        Analyze Another
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
         <footer>
-            <p>Powered by YOLOv8 & OpenCV</p>
+            <p>Powered by <strong>YOLOv8</strong> &middot; PyTorch &middot; OpenCV &middot; FastAPI</p>
         </footer>
     </div>
 
-    <script src="script.js"></script>
+    <script src="/static/script.js"></script>
 </body>
 </html>
