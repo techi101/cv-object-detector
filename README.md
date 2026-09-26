@@ -257,7 +257,8 @@ Measured on 26 Sep 2026. Laptop: CPU only, 8 threads, PyTorch 2.13. Image: Ultra
 | Deployed on Render free tier, first page load after sleep | ~56 s |
 | **In-browser** (headless Edge, 4 threads), bus.jpg, warm | ~218–242 ms per image (pre + model + post) |
 | In-browser, single thread (no COOP/COEP headers) | ~386–428 ms per image |
-| In-browser, model download + load + warm-up | 1.7–2.6 s (3 MB runtime + 12.5 MB model) |
+| In-browser, first visit: download + load + warm-up | ~2 s on a fast connection, ~30 s on a slow one (~15.5 MB: 3 MB runtime + 12.5 MB model, both from the jsDelivr CDN; cached afterwards) |
+| Live site, in-browser detection (headless Edge) | 228–282 ms first, 214–258 ms warm |
 | In-browser live webcam (headless Edge, fake camera) | ~3.4–4.1 FPS |
 
 Model sizes: YOLOv8n has 3.16 M parameters (6.5 MB), YOLOv8s 11.17 M (22.6 MB).
