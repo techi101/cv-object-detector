@@ -1,0 +1,39 @@
+{
+  "dataset": "COCO val2017, 500 images (seed 0)",
+  "imgsz": 640,
+  "results": [
+    {
+      "model": "yolov8n (server, PyTorch)",
+      "weights": "yolov8n.pt",
+      "images": 500,
+      "mAP50_95": 37.4,
+      "mAP50": 52.5,
+      "precision": 62.2,
+      "recall": 46.2,
+      "inference_ms_per_image": 92.9,
+      "published_mAP50_95_full_val": 37.3
+    },
+    {
+      "model": "yolov8s (server default, PyTorch)",
+      "weights": "yolov8s.pt",
+      "images": 500,
+      "mAP50_95": 45.1,
+      "mAP50": 62.3,
+      "precision": 61.1,
+      "recall": 60.4,
+      "inference_ms_per_image": 213.3,
+      "published_mAP50_95_full_val": 44.9
+    },
+    {
+      "model": "yolov8n (browser, ONNX)",
+      "weights": "yolov8n.onnx",
+      "images": 500,
+      "mAP50_95": 36.5,
+      "mAP50": 51.8,
+      "precision": 61.1,
+      "recall": 47.1,
+      "inference_ms_per_image": 62.4,
+      "published_mAP50_95_full_val": null
+    }
+  ]
+}

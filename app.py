@@ -24,6 +24,21 @@ print(f"Initializing YOLOv8{MODEL_SIZE} detector...")
 detector = ObjectDetector(model_size=MODEL_SIZE, confidence=0.4)
 print("Detector ready.")
 
+@app.middleware("http")
+async def cross_origin_isolation(request, call_next):
+    """
+    Make the page "cross-origin isolated" so the in-browser model can use
+    several CPU threads (browsers only allow the shared memory that
+    multi-threaded WebAssembly needs on isolated pages). "credentialless"
+    still lets the page load Google Fonts and the ONNX Runtime CDN files.
+    Browsers without support simply stay single-threaded.
+    """
+    response = await call_next(request)
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    return response
+
+
 os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

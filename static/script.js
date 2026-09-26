@@ -11,6 +11,88 @@ document.addEventListener('DOMContentLoaded', () => {
     let liveDetectionRunning = false;
     let liveDetectionAbort = null;
 
+    // ── Inference engine ────────────────────────────────
+    // 'device': the YOLOv8n ONNX model runs in this browser (ONNX Runtime Web).
+    // 'server': the image is uploaded to /detect and YOLOv8 runs on the server.
+    // Device is the default: on the free hosting the server takes about a
+    // minute per image, the browser a fraction of a second.
+    const MODEL_URL = '/static/models/yolov8n.onnx';
+    const ORT_WASM_PATH = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+    const CONFIDENCE = 0.4;     // same threshold as the server (app.py)
+    let engine = 'device';
+    let session = null;
+    let modelLoading = null;    // promise, so parallel callers share one load
+    const engineStatus = document.getElementById('engine-status');
+    const inputCanvas = document.createElement('canvas');  // 640x640 model input
+
+    function loadModel() {
+        if (modelLoading) return modelLoading;
+        modelLoading = (async () => {
+            if (typeof ort === 'undefined') throw new Error('ONNX Runtime did not load');
+            ort.env.wasm.wasmPaths = ORT_WASM_PATH;
+            // Multi-threading needs a cross-origin-isolated page (see app.py).
+            ort.env.wasm.numThreads = self.crossOriginIsolated
+                ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+            const t0 = performance.now();
+            session = await ort.InferenceSession.create(MODEL_URL, {
+                executionProviders: ['wasm'],
+                graphOptimizationLevel: 'all',
+            });
+            // Warm-up: the first run is slow while buffers are allocated.
+            const blank = new ort.Tensor('float32', new Float32Array(3 * 640 * 640), [1, 3, 640, 640]);
+            await session.run({ [session.inputNames[0]]: blank });
+            const threads = ort.env.wasm.numThreads;
+            engineStatus.textContent = `Model ready in ${((performance.now() - t0) / 1000).toFixed(1)} s`
+                + ` · runs in your browser (${threads} thread${threads > 1 ? 's' : ''})`;
+            return session;
+        })();
+        modelLoading.catch(err => {
+            console.warn('In-browser model failed, falling back to server:', err);
+            document.getElementById('engine-device').disabled = true;
+            setEngine('server');
+            engineStatus.textContent = 'In-browser model unavailable · using server';
+        });
+        return modelLoading;
+    }
+
+    window.setEngine = function(mode) {
+        const wasLive = liveDetectionRunning;
+        if (wasLive) stopLiveDetection();
+        engine = mode;
+        document.getElementById('engine-device').classList.toggle('active', mode === 'device');
+        document.getElementById('engine-server').classList.toggle('active', mode === 'server');
+        if (mode === 'server') {
+            engineStatus.textContent = 'Uploads to the server · about 1 min per image on free hosting';
+        } else {
+            engineStatus.textContent = session ? 'Model ready · runs in your browser' : 'Loading model…';
+            loadModel();
+        }
+        if (wasLive) startLiveDetection();
+    };
+
+    /** Run YOLOv8n in the browser on an image, video or canvas. */
+    async function detectOnDevice(source, width, height) {
+        await loadModel();
+        const t0 = performance.now();
+        const { lb, tensorData } = BrowserDetector.drawLetterboxed(source, width, height, inputCanvas);
+        const tensor = new ort.Tensor('float32', tensorData, [1, 3, 640, 640]);
+        const out = await session.run({ [session.inputNames[0]]: tensor });
+        const dets = BrowserDetector.postprocess(out[session.outputNames[0]].data, lb, { conf: CONFIDENCE });
+        return { dets, ms: performance.now() - t0 };
+    }
+
+    /** Draw source + boxes on a canvas; return data in the /detect response shape. */
+    function renderDeviceResult(source, width, height, dets, canvas) {
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0, width, height);
+        BrowserDetector.drawDetections(ctx, dets);
+        return { count: dets.length, class_counts: BrowserDetector.countByClass(dets) };
+    }
+
+    loadModel();
+
     // ── Mode Switching ──────────────────────────────────
     window.switchMode = function(mode) {
         document.getElementById('tab-upload').classList.toggle('active', mode === 'upload');
@@ -54,8 +136,39 @@ document.addEventListener('DOMContentLoaded', () => {
             alert('Please upload an image file (JPG, PNG, BMP).');
             return;
         }
+        if (engine === 'device') detectFileOnDevice(file);
         // Resize in browser before uploading (large photos crash the server)
-        resizeAndUpload(file);
+        else resizeAndUpload(file);
+    }
+
+    function detectFileOnDevice(file) {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = async () => {
+            showLoading(session ? 'Detecting on your device…'
+                                : 'Loading the model (13 MB, first time only)…');
+            try {
+                const w = img.naturalWidth, h = img.naturalHeight;
+                const { dets, ms } = await detectOnDevice(img, w, h);
+                // Draw at most 1600 px on the long side; boxes scale with it.
+                const k = Math.min(1, 1600 / Math.max(w, h));
+                const scaled = dets.map(d => ({ ...d, box: d.box.map(v => v * k) }));
+                const canvas = document.createElement('canvas');
+                const data = renderDeviceResult(img, Math.round(w * k), Math.round(h * k), scaled, canvas);
+                resultImage.src = canvas.toDataURL('image/jpeg', 0.9);
+                showResults(data, `${Math.round(ms)} ms on your device`);
+            } catch (err) {
+                alert('Error: ' + err.message);
+                resetUI();
+            } finally {
+                URL.revokeObjectURL(url);
+            }
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            alert('This browser could not open that image. Please use JPG, PNG or WebP.');
+        };
+        img.src = url;
     }
 
     function resizeAndUpload(file) {
@@ -125,8 +238,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Single frame capture
-    window.captureFrame = function() {
+    window.captureFrame = async function() {
         const video = document.getElementById('webcam-video');
+        if (engine === 'device') {
+            showLoading('Detecting on your device…');
+            try {
+                const w = video.videoWidth, h = video.videoHeight;
+                const { dets, ms } = await detectOnDevice(video, w, h);
+                const canvas = document.createElement('canvas');
+                const data = renderDeviceResult(video, w, h, dets, canvas);
+                resultImage.src = canvas.toDataURL('image/jpeg', 0.9);
+                showResults(data, `${Math.round(ms)} ms on your device`);
+            } catch (err) {
+                alert('Error: ' + err.message);
+                resetUI();
+            }
+            return;
+        }
         const canvas = document.getElementById('webcam-canvas');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -158,7 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('webcam-video').style.opacity = '0';
         document.getElementById('live-canvas').classList.remove('hidden');
 
-        runLiveLoop();
+        if (engine === 'device') runLiveLoopOnDevice();
+        else runLiveLoop();
     }
 
     function stopLiveDetection() {
@@ -245,6 +374,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Live detection in the browser: detect, draw, repeat as fast as the device allows.
+    async function runLiveLoopOnDevice() {
+        const video = document.getElementById('webcam-video');
+        const liveCanvas = document.getElementById('live-canvas');
+        const fpsEl = document.getElementById('live-fps');
+        let smoothed = null;
+        while (liveDetectionRunning && webcamStream && engine === 'device') {
+            try {
+                const t0 = performance.now();
+                const w = video.videoWidth, h = video.videoHeight;
+                if (!w) { await nextFrame(); continue; }
+                const { dets } = await detectOnDevice(video, w, h);
+                if (!liveDetectionRunning) break;
+                updateLiveStats(renderDeviceResult(video, w, h, dets, liveCanvas));
+                const fps = 1000 / (performance.now() - t0);
+                smoothed = smoothed == null ? fps : 0.8 * smoothed + 0.2 * fps;
+                if (fpsEl) fpsEl.textContent = smoothed.toFixed(1);
+                await nextFrame();  // let the page repaint between frames
+            } catch (err) {
+                console.warn('Live detection error:', err);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+    }
+
+    function nextFrame() {
+        return new Promise(r => requestAnimationFrame(() => r()));
+    }
+
     function updateLiveStats(data) {
         const liveCount = document.getElementById('live-count');
         const liveClasses = document.getElementById('live-classes');
@@ -266,16 +424,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── API Call (single image) ─────────────────────────
     async function sendToAPI(file) {
-        document.getElementById('mode-upload').classList.add('hidden');
-        document.getElementById('mode-webcam').classList.add('hidden');
-        document.querySelectorAll('.mode-tabs')[0].classList.add('hidden');
-        results.classList.add('hidden');
-        loading.classList.remove('hidden');
+        showLoading('Running YOLOv8 on the server… (about a minute on free hosting)');
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
+            const t0 = performance.now();
             const res = await fetch('/detect', { method: 'POST', body: formData });
 
             if (!res.ok) {
@@ -289,7 +444,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const data = await res.json();
-            showResults(data);
+            resultImage.src = 'data:image/jpeg;base64,' + data.image;
+            showResults(data, `${((performance.now() - t0) / 1000).toFixed(1)} s via server`);
         } catch (err) {
             alert('Error: ' + err.message);
             resetUI();
@@ -297,10 +453,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Display Results ─────────────────────────────────
-    function showResults(data) {
-        loading.classList.add('hidden');
+    function showLoading(text) {
+        document.getElementById('mode-upload').classList.add('hidden');
+        document.getElementById('mode-webcam').classList.add('hidden');
+        document.querySelector('.mode-tabs').classList.add('hidden');
+        document.querySelector('.engine-bar').classList.add('hidden');
+        results.classList.add('hidden');
+        document.getElementById('loading-text').textContent = text;
+        loading.classList.remove('hidden');
+    }
 
-        resultImage.src = 'data:image/jpeg;base64,' + data.image;
+    // The caller sets resultImage.src; data carries count and class_counts.
+    function showResults(data, timing) {
+        loading.classList.add('hidden');
+        document.getElementById('timing').textContent = timing || '';
         totalCount.textContent = data.count;
 
         classList.innerHTML = '';
@@ -330,7 +496,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.resetUI = function() {
         results.classList.add('hidden');
         loading.classList.add('hidden');
-        document.querySelectorAll('.mode-tabs')[0].classList.remove('hidden');
+        document.querySelector('.mode-tabs').classList.remove('hidden');
+        document.querySelector('.engine-bar').classList.remove('hidden');
 
         const activeTab = document.querySelector('.tab.active');
         if (activeTab && activeTab.id === 'tab-webcam') {

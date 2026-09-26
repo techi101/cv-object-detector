@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VisionAI — YOLOv8 Object Detection</title>
     <meta name="description" content="Object detection powered by YOLOv8. Upload images or use your webcam to detect the 80 COCO object classes.">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%279%27 fill=%27none%27 stroke=%27%2306b6d4%27 stroke-width=%273%27/%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%273%27 fill=%27%23a855f7%27/%3E%3C/svg%3E">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -46,6 +47,16 @@
                 </svg>
                 Live Webcam
             </button>
+        </div>
+
+        <!-- Where inference runs: in this browser (default) or on the server -->
+        <div class="engine-bar">
+            <span class="engine-label">Run on</span>
+            <div class="engine-switch">
+                <button class="engine-opt active" id="engine-device" onclick="setEngine('device')">This device</button>
+                <button class="engine-opt" id="engine-server" onclick="setEngine('server')">Server</button>
+            </div>
+            <span class="engine-status" id="engine-status">Loading model&hellip;</span>
         </div>
 
         <!-- Upload Mode -->
@@ -100,6 +111,8 @@
                     <div class="hud-row">
                         <span class="hud-label">Objects:</span>
                         <span class="hud-value" id="live-count">0</span>
+                        <span class="hud-label">FPS:</span>
+                        <span class="hud-value" id="live-fps">&ndash;</span>
                     </div>
                     <div class="hud-tags" id="live-classes"></div>
                 </div>
@@ -111,7 +124,7 @@
             <div class="spinner-ring">
                 <div></div><div></div><div></div><div></div>
             </div>
-            <p>Running YOLOv8 inference...</p>
+            <p id="loading-text">Running YOLOv8 inference...</p>
         </div>
 
         <!-- Results (for single image / single capture) -->
@@ -132,6 +145,7 @@
                     <div class="stat-highlight">
                         <span class="stat-number" id="total-count">0</span>
                         <span class="stat-label">Objects Detected</span>
+                        <span class="stat-timing" id="timing"></span>
                     </div>
                     <div class="divider"></div>
                     <h4>Class Breakdown</h4>
@@ -149,10 +163,13 @@
 
         <!-- Footer -->
         <footer>
-            <p>Powered by <strong>YOLOv8</strong> &middot; PyTorch &middot; OpenCV &middot; FastAPI</p>
+            <p>Powered by <strong>YOLOv8</strong> &middot; ONNX Runtime Web &middot; PyTorch &middot; OpenCV &middot; FastAPI</p>
         </footer>
     </div>
 
+    <!-- ONNX Runtime Web runs the exported YOLOv8n model inside the browser -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.js"></script>
+    <script src="/static/browser_detector.js"></script>
     <script src="/static/script.js"></script>
 </body>
 </html>
