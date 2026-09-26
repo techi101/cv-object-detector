@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # Install system dependencies for OpenCV
 RUN apt-get update && apt-get install -y \
@@ -7,6 +7,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Install the CPU-only PyTorch build first. A plain `pip install ultralytics`
+# on Linux pulls the default build with CUDA (GPU) libraries: far larger, and
+# useless on a CPU-only host.
+RUN pip install --no-cache-dir torch==2.13.0 torchvision==0.28.0 \
+    --index-url https://download.pytorch.org/whl/cpu
 
 # Install Python dependencies
 COPY requirements.txt .

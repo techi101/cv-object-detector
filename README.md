@@ -1,6 +1,6 @@
-# Real-Time Object Detection & Tracking
+# YOLOv8 Object Detection — CLI and Web App
 
-> A full-stack computer vision application using YOLOv8, FastAPI, and OpenCV that detects and classifies 80 object classes in real-time. Features a deployed web interface with live webcam detection and image upload analysis.
+> A full-stack computer vision application using a pretrained YOLOv8 model, FastAPI, and OpenCV that detects and classifies the 80 COCO object classes. Runs in real time locally on a laptop CPU (about 13 FPS with the nano model) and ships a deployed web interface with image upload and webcam detection.
 
 [![Live Demo](https://img.shields.io/badge/🔗_Live_Demo-cv--object--detector-00b4d8?style=for-the-badge)](https://cv-object-detector-zrgy.onrender.com)
 
@@ -19,20 +19,26 @@ This system takes any visual input (live webcam, uploaded image, or video file) 
 
 1. **Detects objects** — Draws bounding boxes around every recognized object (person, car, dog, bottle, etc.)
 2. **Classifies objects** — Labels each detection with its class name and confidence score (e.g., `person 92%`)
-3. **Tracks counts** — Displays a real-time HUD showing per-class object counts
+3. **Counts objects** — Displays a HUD with per-class object counts for the current frame
 4. **Measures performance** — Tracks FPS, generates confidence histograms, and writes benchmark reports
 
-It uses **YOLOv8** (You Only Look Once, version 8) — the same deep learning architecture used in autonomous vehicles, security cameras, and industrial quality inspection.
+It uses **YOLOv8** (You Only Look Once, version 8) with Ultralytics' COCO-pretrained weights, used as released (no training or fine-tuning).
+
+> **No tracking.** Objects are detected independently in every frame. Counts are
+> per frame; a video summary adds them up across frames, so one bus visible for
+> 60 frames is counted 60 times. Persistent object IDs would need a tracker
+> (e.g. Ultralytics `model.track` with ByteTrack), which is not implemented.
 
 ### 🌐 Deployed Web Application
 
 The project includes a **full-stack web application** that runs entirely in the browser:
 
-- **Live Webcam Detection** — Enable your camera and run continuous real-time object detection with bounding boxes and labels drawn directly on the video feed
+- **Live Webcam Detection** — Enable your camera and run continuous detection: each frame is uploaded, annotated on the server, and shown with boxes and labels. The frame rate is limited by the server round trip (see [Performance](#performance-measured))
 - **Image Upload Analysis** — Drag & drop any image for instant YOLOv8 analysis with a detailed breakdown of detected objects
 - **Modern Dark UI** — Premium design with glassmorphism, animated gradients, and micro-animations
 
 > **Try it live:** [cv-object-detector-zrgy.onrender.com](https://cv-object-detector-zrgy.onrender.com)
+> The free Render instance sleeps when idle (first load ≈ 1 minute) and runs inference on a small shared CPU, so each detection takes about a minute there. It is a functional demo, not real-time. Run it locally for real-time speed.
 
 ---
 
@@ -48,6 +54,7 @@ pip install -r requirements.txt
 uvicorn app:app --reload
 
 # Open http://127.0.0.1:8000 in your browser
+# (MODEL_SIZE=n uvicorn app:app selects the faster nano model; default is small)
 ```
 
 ### Option 2: Command Line (Local)
@@ -94,31 +101,33 @@ docker run -p 8000:8000 cv-object-detector
 
 ## How YOLO Works (Simple Explanation)
 
-Traditional object detection (R-CNN) works in two steps:
-1. First, scan the image to find "regions" that might contain objects
+Two-stage detectors (the R-CNN family) work in two steps:
+1. First, propose "regions" that might contain objects
 2. Then, classify each region separately
 
-**YOLO** does it in **one step** (hence "You Only Look Once"):
-1. Divide the image into a grid (e.g., 13×13)
-2. Each grid cell simultaneously predicts bounding boxes AND class probabilities
-3. Filter out low-confidence predictions
-
-This makes YOLO extremely fast — fast enough for real-time video processing.
+**YOLO** does it in **one pass** (hence "You Only Look Once"): a single network
+predicts boxes and classes for the whole image at once, which makes it fast.
 
 ### YOLOv8 Architecture
 ```
-Input Image (640×640)
+Input image, letterboxed to 640 on the long side (grey padding, value 114)
     ↓
-[Backbone: CSPDarknet] → Extracts visual features at multiple scales
+[Backbone: CSPDarknet-style, C2f blocks] → features at strides 8, 16, 32
     ↓
-[Neck: PANet/FPN] → Combines features from different scales
+[Neck: FPN/PAN] → combines fine and coarse features across scales
     ↓
-[Head: Decoupled] → Predicts (bounding box, confidence, class) for each anchor
+[Head: decoupled, anchor-free] → at every position of three grids
+     (80×80, 40×40, 20×20 for a 640×640 input = 8,400 positions):
+     4 box values + 80 class scores  → output tensor 84 × 8,400
     ↓
-[NMS] → Filters overlapping boxes, keeps the best ones
+[Confidence filter (0.4 here) + NMS (IoU 0.7)] → removes low scores and duplicates
     ↓
-Output: List of (x1, y1, x2, y2, class, confidence)
+Output: list of (x1, y1, x2, y2, class, confidence) in original-image pixels
 ```
+
+YOLOv8 is **anchor-free** (it predicts distances from each grid point to the box
+edges, rather than adjusting preset anchor boxes) and has **no separate
+objectness score**: the best class score is the confidence.
 
 ---
 
@@ -166,8 +175,9 @@ cv-object-detector/
 │   ├── style.css        ← Premium stylesheet (animations, responsive)
 │   └── script.js        ← Webcam capture, live detection loop, drag & drop
 ├── tests/
-│   └── test_detector.py ← 16 pytest tests (model init, output structure, drawing)
-├── results/             ← Auto-generated outputs
+│   ├── test_detector.py ← 20 tests (model init, output structure, drawing, known image)
+│   └── test_api.py      ← 5 tests (status codes for good, bad and oversized uploads)
+├── results/             ← Created when you run the tools (not committed)
 │   ├── *_detected.jpg       (annotated images)
 │   ├── detected_output.mp4  (annotated video)
 │   ├── performance_analysis.png (benchmark charts)
@@ -183,13 +193,13 @@ cv-object-detector/
 | Feature | Description |
 |:---|:---|
 | **🌐 Live Web App** | Deployed on Render with a modern dark-mode UI |
-| **📷 Browser Webcam** | Real-time continuous detection using browser camera API |
+| **📷 Browser Webcam** | Continuous frame-by-frame detection using the browser camera API |
 | **📤 Image Upload** | Drag & drop image analysis with detection breakdown |
 | **🎯 80 object classes** | Full COCO dataset (person, car, dog, chair, phone, etc.) |
-| **📊 Real-time HUD** | FPS counter, object count, per-class breakdown overlay |
+| **📊 HUD overlay** | FPS counter, object count, per-class breakdown for the current frame |
 | **⚙️ Confidence filtering** | Adjustable threshold (0.0 – 1.0) via CLI |
 | **📦 Docker support** | Containerized for one-command cloud deployment |
-| **🧪 Tested** | 16 pytest tests covering model init, output structure, drawing |
+| **🧪 Tested** | 25 pytest tests: model init, output structure, drawing, a known image, and API status codes |
 | **📈 Benchmarking** | FPS analysis, confidence distribution, detection charts |
 
 ---
@@ -198,7 +208,7 @@ cv-object-detector/
 
 | Component | Technology |
 |:---|:---|
-| Deep Learning Model | YOLOv8s (Ultralytics) |
+| Deep Learning Model | YOLOv8s in the web app, YOLOv8n for CLI/benchmark/tests (Ultralytics, COCO-pretrained) |
 | Deep Learning Framework | PyTorch |
 | Computer Vision | OpenCV |
 | Web Backend | FastAPI + Uvicorn |
@@ -207,6 +217,40 @@ cv-object-detector/
 | Deployment | Render (Free Tier) |
 | Scientific Computing | NumPy, Matplotlib |
 | Testing | pytest |
+
+---
+
+## Performance (measured)
+
+Measured on 26 Sep 2026. Laptop: CPU only, 8 threads, PyTorch 2.13. Image: Ultralytics' `bus.jpg` (810×1080).
+
+| Setting | Result |
+|---|---|
+| YOLOv8n, single image, median of warm runs | ~77–80 ms (~13 FPS) |
+| YOLOv8s, single image, median of warm runs | ~169 ms |
+| YOLOv8n, 60-frame 640×480 video, whole loop (read + detect + draw) | 12.2 FPS average |
+| Deployed on Render free tier, `POST /detect`, warm | ~57–65 s per image |
+| Deployed on Render free tier, first page load after sleep | ~56 s |
+
+Model sizes: YOLOv8n has 3.16 M parameters (6.5 MB), YOLOv8s 11.17 M (22.6 MB).
+On bus.jpg at confidence 0.4, nano finds the bus and 3 people; small finds the bus and 4.
+
+**Accuracy is not measured in this project.** The weights are Ultralytics'
+COCO-pretrained releases; Ultralytics reports COCO val mAP50-95 of about 37 (n)
+and 45 (s). `benchmark.py` measures speed and confidence, not accuracy.
+
+---
+
+## Known Limitations
+
+| Limitation | Detail |
+|---|---|
+| **Deployed speed** | About a minute per image on Render's free CPU; live webcam mode there updates roughly once a minute. |
+| **No tracking** | Counts are per frame; video summaries add detections across frames. |
+| **80 COCO classes only** | Pretrained weights, no fine-tuning; objects outside COCO are not detected. |
+| **No accuracy evaluation** | No mAP / precision / recall measured on any labelled data. |
+| **Server-side drawing** | The API returns a re-encoded base64 image (~110 KB) instead of box coordinates, which is heavy for live video. |
+| **HEIC photos** | Accepted by the picker but only decodable in browsers that support HEIC (mainly Safari). |
 
 ---
 

@@ -1,8 +1,18 @@
-ultralytics>=8.0.0
-opencv-python>=4.8.0
-numpy>=1.24.0
-matplotlib>=3.7.0
-pytest>=7.0.0
-fastapi>=0.103.0
-uvicorn>=0.23.2
-python-multipart>=0.0.6
+# Pinned to the versions this project was last run and tested with
+# (26 Sep 2026, Python 3.12). Unpinned ">=" ranges let every rebuild pull
+# whatever is newest, so a redeploy could break with no code change.
+ultralytics==8.4.124
+# PyTorch pinned too; the Dockerfile installs these exact versions as CPU-only
+# builds first, and these pins stop pip replacing them with newer GPU builds.
+torch==2.13.0
+torchvision==0.28.0
+opencv-python==5.0.0.93
+numpy==2.3.4
+matplotlib==3.11.0
+fastapi==0.139.0
+uvicorn==0.51.0
+python-multipart==0.0.32
+
+# Tests only
+pytest==9.1.1
+httpx==0.28.1

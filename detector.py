@@ -1,15 +1,16 @@
 """
 detector.py
 -----------
-Real-Time Object Detection & Tracking using YOLOv8 and OpenCV.
+Object detection on webcam, video and images using YOLOv8 and OpenCV.
 
 Supports:
   - Live webcam detection
   - Video file detection
   - Saving annotated output video
-  - Real-time FPS overlay
+  - FPS overlay
   - Confidence threshold filtering
-  - Per-class object counting
+  - Per-frame, per-class object counts (detections, not tracked objects:
+    there is no tracking, so the same object is counted in every frame)
 
 Usage:
   python detector.py                          # Webcam (live)
@@ -23,24 +24,28 @@ import numpy as np
 import argparse
 import time
 import os
-from collections import defaultdict
+from collections import Counter, defaultdict
 from ultralytics import YOLO
 
 
 # ── Color Palette ────────────────────────────────────────────────────────────
-# Visually distinct colors for different object classes (BGR format for OpenCV)
+# Visually distinct colors for different object classes, in OpenCV's BGR
+# order (blue, green, red). The comment gives the colour's RGB hex.
 COLORS = [
-    (255, 107, 107),   # Red
-    (78, 205, 196),    # Teal
-    (255, 195, 0),     # Gold
-    (106, 176, 76),    # Green
-    (199, 125, 255),   # Purple
-    (255, 154, 162),   # Pink
-    (0, 180, 216),     # Cyan
-    (255, 183, 77),    # Orange
-    (144, 190, 109),   # Lime
-    (108, 142, 191),   # Steel Blue
+    (107, 107, 255),   # Red        #FF6B6B
+    (196, 205, 78),    # Teal       #4ECDC4
+    (0, 195, 255),     # Gold       #FFC300
+    (76, 176, 106),    # Green      #6AB04C
+    (255, 125, 199),   # Purple     #C77DFF
+    (162, 154, 255),   # Pink       #FF9AA2
+    (216, 180, 0),     # Cyan       #00B4D8
+    (77, 183, 255),    # Orange     #FFB74D
+    (109, 190, 144),   # Lime       #90BE6D
+    (191, 142, 108),   # Steel Blue #6C8EBF
 ]
+
+# File extensions treated as still images (anything else is opened as video).
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
 
 
 def get_color(class_id: int) -> tuple:
@@ -155,21 +160,27 @@ class ObjectDetector:
             # Draw bounding box
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
 
-            # Draw label background
+            # Draw label background. Normally it sits just above the box; for a
+            # box touching the top edge that would be off-image (negative y),
+            # so the label goes just inside the top of the box instead.
             label = f"{class_name} {confidence:.0%}"
             (label_w, label_h), baseline = cv2.getTextSize(
                 label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
             )
+            label_top = y1 - label_h - baseline - 4
+            if label_top < 0:
+                label_top = y1
+            label_bottom = label_top + label_h + baseline + 4
             cv2.rectangle(
                 annotated,
-                (x1, y1 - label_h - baseline - 4),
-                (x1 + label_w + 4, y1),
+                (x1, label_top),
+                (x1 + label_w + 4, label_bottom),
                 color, -1  # Filled
             )
             # Draw label text
             cv2.putText(
                 annotated, label,
-                (x1 + 2, y1 - baseline - 2),
+                (x1 + 2, label_bottom - baseline - 2),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1
             )
 
@@ -264,7 +275,7 @@ class ObjectDetector:
             self.detection_log.append({
                 "frame": self.frame_count,
                 "count": detections["count"],
-                "classes": dict(defaultdict(int)),
+                "classes": dict(Counter(detections["class_names"])),
             })
 
             # Calculate FPS
@@ -312,7 +323,7 @@ class ObjectDetector:
         print(f"  Avg detections/frame: {total_detections/max(self.frame_count,1):.1f}")
         print(f"  Average FPS:         {avg_fps:.1f}")
         print(f"  {'─'*50}")
-        print(f"  Objects detected by class:")
+        print(f"  Detections by class (summed over frames; not unique objects):")
         for cls, count in sorted(all_class_counts.items(),
                                   key=lambda x: -x[1]):
             print(f"    {cls:20s}  {count}")
@@ -384,7 +395,7 @@ def main():
     )
     parser.add_argument(
         "--save", action="store_true",
-        help="Save annotated output video/image to results/"
+        help="Save annotated output video to results/ (images are always saved)"
     )
     args = parser.parse_args()
 
@@ -396,7 +407,7 @@ def main():
     detector = ObjectDetector(model_size=args.model,
                               confidence=args.confidence)
 
-    if args.source and args.source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp")):
+    if args.source and args.source.lower().endswith(IMAGE_EXTS):
         # Image mode
         run_image_detection(detector, args.source)
     else:

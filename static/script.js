@@ -85,6 +85,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     sendToAPI(resizedFile);
                 }, 'image/jpeg', 0.85);
             };
+            // Most browsers other than Safari cannot decode HEIC; without this
+            // handler the upload silently never happened.
+            img.onerror = function() {
+                alert('This browser could not open that image. Please use JPG, PNG or WebP.');
+            };
             img.src = e.target.result;
         };
         reader.readAsDataURL(file);
@@ -210,6 +215,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!liveDetectionRunning) break;
 
+                if (!res.ok) {
+                    // Show the server's error instead of silently retrying.
+                    let msg = 'server returned ' + res.status;
+                    try { msg = (await res.json()).detail || msg; } catch (e) { /* not JSON */ }
+                    const liveCount = document.getElementById('live-count');
+                    if (liveCount) liveCount.textContent = '!';
+                    console.warn('Live detection error:', msg);
+                    await new Promise(r => setTimeout(r, 1000));
+                    continue;
+                }
+
                 const data = await res.json();
 
                 if (data.success) {
@@ -236,9 +252,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (liveClasses) {
             const sorted = Object.entries(data.class_counts).sort((a, b) => b[1] - a[1]);
-            liveClasses.innerHTML = sorted.map(([name, count]) =>
-                `<span class="live-tag">${name} <strong>${count}</strong></span>`
-            ).join('');
+            liveClasses.replaceChildren(...sorted.map(([name, count]) => {
+                const tag = document.createElement('span');
+                tag.className = 'live-tag';
+                tag.append(name + ' ');
+                const strong = document.createElement('strong');
+                strong.textContent = count;
+                tag.append(strong);
+                return tag;
+            }));
         }
     }
 
@@ -290,7 +312,13 @@ document.addEventListener('DOMContentLoaded', () => {
             sorted.forEach(([name, count]) => {
                 const li = document.createElement('li');
                 li.className = 'class-item';
-                li.innerHTML = `<span class="class-name">${name}</span><span class="class-count">${count}</span>`;
+                const nameEl = document.createElement('span');
+                nameEl.className = 'class-name';
+                nameEl.textContent = name;
+                const countEl = document.createElement('span');
+                countEl.className = 'class-count';
+                countEl.textContent = count;
+                li.append(nameEl, countEl);
                 classList.appendChild(li);
             });
         }

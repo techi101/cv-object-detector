@@ -21,7 +21,11 @@ import matplotlib.pyplot as plt
 import os
 import time
 from collections import defaultdict
-from detector import ObjectDetector
+from detector import ObjectDetector, IMAGE_EXTS
+
+# The first inference calls are slower (memory allocation, lazy setup). They
+# are run but not timed, so reported FPS reflects steady-state speed.
+WARMUP_RUNS = 3
 
 
 def benchmark_on_video(source: str, detector: ObjectDetector,
@@ -51,14 +55,20 @@ def benchmark_on_video(source: str, detector: ObjectDetector,
     all_class_counts = defaultdict(int)
     frame_idx = 0
 
+    ret, first = cap.read()
+    if ret:
+        for _ in range(WARMUP_RUNS):
+            detector.detect_frame(first)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
     while frame_idx < max_frames:
         ret, frame = cap.read()
         if not ret:
             break
 
-        start = time.time()
+        start = time.perf_counter()
         detections = detector.detect_frame(frame)
-        elapsed = time.time() - start
+        elapsed = time.perf_counter() - start
 
         fps = 1.0 / max(elapsed, 1e-9)
         fps_log.append(fps)
@@ -117,12 +127,14 @@ def benchmark_on_image(source: str, detector: ObjectDetector) -> dict:
     detections = None
 
     n_runs = 50
+    for _ in range(WARMUP_RUNS):
+        detector.detect_frame(frame)
     print(f"  Running {n_runs} inference passes for FPS measurement ...")
 
     for i in range(n_runs):
-        start = time.time()
+        start = time.perf_counter()
         detections = detector.detect_frame(frame)
-        elapsed = time.time() - start
+        elapsed = time.perf_counter() - start
         fps = 1.0 / max(elapsed, 1e-9)
         fps_log.append(fps)
 
@@ -226,7 +238,8 @@ def generate_plots(results: dict, output_dir: str = "results"):
     print(f"  [SAVED] {path}")
 
 
-def generate_report(results: dict, output_dir: str = "results"):
+def generate_report(results: dict, output_dir: str = "results",
+                    model_name: str = "yolov8n"):
     """Generate a text-based technical report."""
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "benchmark_report.txt")
@@ -238,13 +251,14 @@ def generate_report(results: dict, output_dir: str = "results"):
 
         f.write("MODEL CONFIGURATION\n")
         f.write("-" * 40 + "\n")
-        f.write(f"  Model:            YOLOv8n (nano)\n")
+        f.write(f"  Model:            {model_name}\n")
         f.write(f"  Framework:        PyTorch + Ultralytics\n")
         f.write(f"  Visualization:    OpenCV\n\n")
 
         f.write("PERFORMANCE METRICS\n")
         f.write("-" * 40 + "\n")
-        f.write(f"  Frames processed: {results['frames_processed']}\n")
+        f.write(f"  Frames processed: {results['frames_processed']} "
+                f"(after {WARMUP_RUNS} untimed warm-up runs)\n")
         f.write(f"  Average FPS:      {results['avg_fps']:.1f}\n")
         f.write(f"  Min FPS:          {results['min_fps']:.1f}\n")
         f.write(f"  Max FPS:          {results['max_fps']:.1f}\n\n")
@@ -284,6 +298,10 @@ def main():
         "--confidence", type=float, default=0.4,
         help="Confidence threshold. Default: 0.4"
     )
+    parser.add_argument(
+        "--model", type=str, default="n", choices=["n", "s", "m", "l", "x"],
+        help="YOLOv8 model size. The web app uses 's'. Default: n"
+    )
     args = parser.parse_args()
 
     print()
@@ -291,10 +309,10 @@ def main():
     print("  OBJECT DETECTION BENCHMARK")
     print("=" * 55)
 
-    detector = ObjectDetector(model_size="n", confidence=args.confidence)
+    detector = ObjectDetector(model_size=args.model, confidence=args.confidence)
 
     # Detect if source is an image or video
-    is_image = args.source.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
+    is_image = args.source.lower().endswith(IMAGE_EXTS)
 
     if is_image:
         results = benchmark_on_image(args.source, detector)
@@ -307,7 +325,7 @@ def main():
 
     print("\n  Generating analysis plots ...")
     generate_plots(results)
-    generate_report(results)
+    generate_report(results, model_name=f"yolov8{args.model}")
 
     print(f"\n  Done! Check the results/ folder for outputs.")
 

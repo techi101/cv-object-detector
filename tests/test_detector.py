@@ -21,6 +21,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from detector import ObjectDetector, get_color
 
+import ultralytics
+
+# Street photo bundled with Ultralytics: one bus and four people.
+BUS_JPG = os.path.join(os.path.dirname(ultralytics.__file__), "assets", "bus.jpg")
+
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -142,6 +147,42 @@ class TestColors:
     def test_different_classes_different_colors(self):
         """Adjacent class IDs should get different colors."""
         assert get_color(0) != get_color(1)
+
+
+# ── Known-image Tests ────────────────────────────────────────────────────────
+
+class TestKnownImage:
+    def test_bus_image_finds_bus_and_people(self, detector):
+        """A real photo must produce the objects it contains, not just valid structure."""
+        frame = cv2.imread(BUS_JPG)
+        assert frame is not None
+        result = detector.detect_frame(frame)
+        assert "bus" in result["class_names"]
+        assert result["class_names"].count("person") >= 3
+
+    def test_boxes_inside_image(self, detector):
+        """Every box must lie within the image bounds."""
+        frame = cv2.imread(BUS_JPG)
+        h, w = frame.shape[:2]
+        for x1, y1, x2, y2 in detector.detect_frame(frame)["boxes"]:
+            assert 0 <= x1 < x2 <= w and 0 <= y1 < y2 <= h
+
+
+class TestLabelPlacement:
+    def test_label_visible_for_box_at_top_edge(self, detector, blank_frame):
+        """A box touching the top edge must still get a visible label."""
+        detections = {"boxes": [[100, 0, 300, 200]], "confidences": [0.9],
+                      "class_ids": [0], "class_names": ["person"], "count": 1}
+        annotated = detector.draw_detections(blank_frame, detections)
+        # The filled label background lands in the first rows inside the box.
+        assert annotated[2:12, 105:150].any()
+
+
+class TestColorOrder:
+    def test_first_color_is_red_in_bgr(self):
+        """COLORS are BGR: the 'Red' entry must have red (index 2) as its largest channel."""
+        b, g, r = get_color(0)
+        assert r > b and r > g
 
 
 if __name__ == "__main__":
