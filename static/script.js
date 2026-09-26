@@ -16,7 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // 'server': the image is uploaded to /detect and YOLOv8 runs on the server.
     // Device is the default: on the free hosting the server takes about a
     // minute per image, the browser a fraction of a second.
-    const MODEL_URL = '/static/models/yolov8n.onnx';
+    // The model is fetched from the jsDelivr CDN first (a copy of this repo's
+    // file at a fixed commit: fast, cached for a year), then from this server.
+    // Render's free tier served the 12.5 MB file in 3-67 s; the CDN in ~1 s.
+    // If static/models/yolov8n.onnx ever changes, update the commit hash.
+    const MODEL_URLS = [
+        'https://cdn.jsdelivr.net/gh/techi101/cv-object-detector@f0fe46f7d63d652a0111436727e8b0c06d163cd5/static/models/yolov8n.onnx',
+        '/static/models/yolov8n.onnx',
+    ];
     const ORT_WASM_PATH = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
     const CONFIDENCE = 0.4;     // same threshold as the server (app.py)
     let engine = 'device';
@@ -34,7 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ort.env.wasm.numThreads = self.crossOriginIsolated
                 ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
             const t0 = performance.now();
-            session = await ort.InferenceSession.create(MODEL_URL, {
+            const modelBytes = await fetchModel();
+            engineStatus.textContent = 'Preparing model…';
+            session = await ort.InferenceSession.create(modelBytes, {
                 executionProviders: ['wasm'],
                 graphOptimizationLevel: 'all',
             });
@@ -53,6 +62,36 @@ document.addEventListener('DOMContentLoaded', () => {
             engineStatus.textContent = 'In-browser model unavailable · using server';
         });
         return modelLoading;
+    }
+
+    /** Download the model, trying each URL in turn, showing percent progress. */
+    async function fetchModel() {
+        for (const url of MODEL_URLS) {
+            try {
+                const res = await fetch(url);
+                if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+                const total = Number(res.headers.get('Content-Length')) || 0;
+                const reader = res.body.getReader();
+                const chunks = [];
+                let received = 0;
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    engineStatus.textContent = total
+                        ? `Downloading model… ${Math.round(100 * received / total)}%`
+                        : `Downloading model… ${(received / 1e6).toFixed(1)} MB`;
+                }
+                const bytes = new Uint8Array(received);
+                let offset = 0;
+                for (const c of chunks) { bytes.set(c, offset); offset += c.length; }
+                return bytes;
+            } catch (err) {
+                console.warn('Model download failed from', url, err);
+            }
+        }
+        throw new Error('model download failed');
     }
 
     window.setEngine = function(mode) {
